@@ -2,6 +2,7 @@
 
 from django.db import migrations, models
 from django.db.migrations.recorder import MigrationRecorder
+from cms.models import Placeholder
 
 migration_table = (
     ("BlogConfig", "StoriesConfig"),
@@ -22,7 +23,7 @@ def copy_data(pk_maps: dict, pass_2: list, source_model: models.Model, target_mo
     fields = [
         field.name
         for field in source_model._meta.get_fields()
-        if not (field.many_to_one or field.many_to_many or field.one_to_many)
+        if not (field.many_to_one or field.many_to_many or field.one_to_many or field.one_to_one)
     ]
     # Add <field>_id for ForeignKey fields if not already present
     for field in source_model._meta.fields:
@@ -49,6 +50,8 @@ def copy_data(pk_maps: dict, pass_2: list, source_model: models.Model, target_mo
                     else:
                         # No value available, mark for pass 2
                         unresolved.append((rel_model_name, fk_name, old_fk))
+        if target_model.__name__ in ["LatestPostsPlugin", "AuthorEntriesPlugin", "FeaturedPostsPlugin", "GenericBlogPlugin"]:
+            obj_dict["position"] = Placeholder.objects.get(id=obj_dict["placeholder_id"]).get_last_plugin_position("es") + 1
         new_obj = target_model.objects.create(**obj_dict)
         pk_maps.setdefault(target_model.__name__, {})[old_pk] = new_obj.pk
         for rel_model_name, fk_name, old_fk in unresolved:
@@ -209,11 +212,11 @@ def migrate_from_blog_to_stories(apps, schema_editor):
             'djangocms_blog_blogconfig',
         ]
         for table in blog_m2n_tables:
-            cursor.execute(f"DROP TABLE IF EXISTS `{table}`;")
+            cursor.execute(f"DROP TABLE IF EXISTS {table};")
         for table in blog_plugin_tables:
-            cursor.execute(f"DROP TABLE IF EXISTS `{table}`;")
+            cursor.execute(f"DROP TABLE IF EXISTS {table};")
         for table in blog_ordered_other_tables:
-            cursor.execute(f"DROP TABLE IF EXISTS `{table}`;")
+            cursor.execute(f"DROP TABLE IF EXISTS {table};")
             if table in blog_other_tables:
                 blog_other_tables.remove(table)
         # Drop remaining blog tables if any
@@ -246,6 +249,14 @@ class Migration(migrations.Migration):
     ]
 
     operations = [
+        migrations.RunSQL(
+            'ALTER TABLE "communications_featuredpost" DROP CONSTRAINT IF EXISTS "communications_featuredpost_post_id_7ad9651a_fk";'
+            'ALTER TABLE "communications_informationextension" DROP CONSTRAINT IF EXISTS "communications_informationextension_post_id_2a76f17a_fk";'
+            'ALTER TABLE "communications_notificationextension" DROP CONSTRAINT IF EXISTS "communications_notificationextension_post_id_0f9a789e_fk";'
+            'ALTER TABLE "communications_featuredpost" DROP CONSTRAINT IF EXISTS "communications_featuredpost_app_config_id_52da4bd9_fk";'
+            'ALTER TABLE "communications_relatednews" DROP CONSTRAINT IF EXISTS "communications_relatednews_app_config_id_bfbe5274_fk";'
+            'ALTER TABLE "communications_tagshowcase" DROP CONSTRAINT IF EXISTS "communications_tagshowcase_app_config_id_ace7a26e_fk";'
+        ),
         migrations.RunPython(
             code=migrate_from_blog_to_stories,
             elidable=True,
